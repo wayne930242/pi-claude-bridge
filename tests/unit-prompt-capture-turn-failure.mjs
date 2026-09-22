@@ -33,7 +33,9 @@ activate({
 const model = providerConfig.models[0];
 const turn = (systemPrompt) => providerConfig.streamSimple(
 	model,
-	{ systemPrompt, messages: [{ role: "user", content: "hi", timestamp: 0 }], tools: [] },
+	// A conversation turn always carries tools; a tool-less single user message is a
+	// foreign one-shot and takes the isolated path instead.
+	{ systemPrompt, messages: [{ role: "user", content: "hi", timestamp: 0 }], tools: [{ name: "read", description: "Read a file", parameters: { type: "object", properties: {} } }] },
 	{ sessionId: "pi-session" },
 );
 
