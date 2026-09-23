@@ -159,6 +159,57 @@ test("tools: [] exposes no builtin tools — only what we serve over MCP", { tim
 		`CC exposed tools beyond our MCP server: ${JSON.stringify(init.tools)}`);
 });
 
+// --- Tools changed mid-query (syncServedTools) ---
+
+/** Serves `enable`; calling it swaps in `canary`, sends tools/list_changed and,
+ *  as the bridge does, holds its result until CC re-lists. A stub API scripts the
+ *  model's `enable` call, so the tool set CC sends on the very next request is
+ *  observed directly, independent of what a model would choose to do. */
+async function toolsAfterListChanged() {
+	const requests = [];
+	const api = await stubApi(requests, { toolCallsFirst: ["mcp__custom-tools__enable"] });
+	let listed = [noArgTool("enable")];
+	let relisted = null;
+	const server = new McpServer({ name: "custom-tools", version: "1.0.0" }, { capabilities: { tools: { listChanged: true } } });
+	server.server.setRequestHandler(ListToolsRequestSchema, () => {
+		setImmediate(() => relisted?.());
+		return { tools: listed };
+	});
+	server.server.setRequestHandler(CallToolRequestSchema, async () => {
+		listed = [noArgTool("enable"), noArgTool("canary")];
+		await new Promise((resolve) => {
+			relisted = resolve;
+			setTimeout(resolve, 2_000);
+			void server.server.sendToolListChanged();
+		});
+		return { content: [{ type: "text", text: "Enabled: canary." }] };
+	});
+	try {
+		await collect(query({
+			prompt: "Call enable.",
+			options: providerOptions({
+				maxTurns: 2, persistSession: false,
+				env: { ...process.env, ANTHROPIC_BASE_URL: api.url, ENABLE_CLAUDEAI_MCP_SERVERS: "0", DISABLE_AUTO_COMPACT: "1" },
+				mcpServers: { "custom-tools": { type: "sdk", name: "custom-tools", instance: server } },
+			}),
+		}));
+	} finally {
+		api.close();
+	}
+	const afterEnable = requests.find((body) => JSON.stringify(body.messages ?? []).includes("Enabled: canary."));
+	assert.ok(afterEnable, "CC never sent the request carrying enable's result");
+	return (afterEnable.tools ?? []).map((tool) => tool.name);
+}
+
+test("a tool added mid-query (tools/list_changed) reaches CC's next request", { timeout: 120_000 }, async () => {
+	// Pins that CC honors the notification mid-query at all. Why the bridge waits
+	// for the re-list before releasing the result is a timing race the zero-latency
+	// stub cannot open; diag/probe-mid-turn-tools.mjs (bridge vs bridge-nowait)
+	// shows it against the real API.
+	assert.ok((await toolsAfterListChanged()).includes("mcp__custom-tools__canary"),
+		"CC's next request kept the old tool set; tools activated mid-turn cannot reach the model");
+});
+
 test("a tool_use naming an unserved tool is answered by CC, never dispatched to us", { timeout: 120_000 }, async () => {
 	// The premise of the fix in 122914dd. Whether the model takes the bait is up
 	// to the model, so the always-true half (never dispatched) is asserted
@@ -543,7 +594,9 @@ function stubApi(requests, { paths, overloadFirst = 0, toolCallsFirst = [], stal
 		paths?.push(`${req.method} ${req.url}`);
 		req.on("data", (c) => chunks.push(c));
 		req.on("end", () => {
-			if (req.method === "POST" && req.url.includes("/v1/messages") && overloadFirst > 0) {
+			if (req.method === "POST" && req.url.startsWith("/v1/messages/count_tokens")) {
+				res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ input_tokens: 10 }));
+			} else if (req.method === "POST" && req.url.includes("/v1/messages") && overloadFirst > 0) {
 				overloadFirst--;
 				res.writeHead(529, { "content-type": "application/json" });
 				res.end(JSON.stringify({ type: "error", error: { type: "overloaded_error", message: "Overloaded" } }));
