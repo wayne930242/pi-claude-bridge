@@ -879,6 +879,7 @@ export const __test = {
 	effortForReasoning,
 	syncSharedSession,
 	promptAndWait,
+	streamClaudeAgentSdk,
 	extractUserPromptBlocks,
 	consumeQuery,
 	finalizeCurrentStream,
