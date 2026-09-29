@@ -50,7 +50,7 @@ before(() => {
 	// Activation computes the registered model list (twins included) that
 	// AskClaude resolves against. registerTool is stubbed for the same reason as
 	// in unit-branch-summary.mjs: a local config may enable AskClaude.
-	activate({ on: () => {}, registerProvider: () => {}, registerTool: () => {}, registerCommand: () => {} });
+	activate({ on: () => {}, registerProvider: () => {}, registerTool: () => {} });
 	__test.setQuery(fakeQuery);
 });
 
