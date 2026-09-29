@@ -35,6 +35,8 @@ The model list comes from pi-ai's Anthropic catalog automatically — when pi-ai
 
 **200K twins:** every model that gets 1M is also listed as a 200K twin with `200k` after `claude-`, e.g. `claude-bridge/claude-200k-opus-5-5`, so one session can run a model at 1M while subagents run it at 200K. A twin sends the bare model id and sets `CLAUDE_CODE_DISABLE_1M_CONTEXT=1`, because Opus 4.7 and 5.5 serve 1M from the bare id alone. Shortcuts such as `opus` never select a twin; name it exactly, or with a partial id containing `200k` (e.g. `200k-opus`).
 
+**Subscription usage:** Claude Code reports your plan's usage windows with every request, and the bridge shows them in pi's footer, e.g. `Claude 5h 10% ↻23:30 · 7d 16% ↻9/29` (percent used, then when the window resets). `/claude-usage` shows the same windows with exact reset times and Extra Usage status. The latest report is saved to `~/.pi/agent/claude-bridge-usage.json` so a new session shows it before its first request; a window whose reset time has passed drops out of the footer until the next request reports it again.
+
 ## AskClaude Tool
 
 Opt-in: set `askClaude.enabled` to `true` (see [Configuration](#configuration)). Available when using any non-claude-bridge provider. Pi's LLM can delegate tasks to Claude Code and wait for it to answer a question or perform a task. Examples of how to use:
