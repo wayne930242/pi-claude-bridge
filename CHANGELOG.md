@@ -3,6 +3,7 @@
 ## UNRELEASED
 
 - **Bump: Claude Sonnet 5.5** — Should appear in `/model` with 1M context once pi-ai ships the new catalog entry. Agent SDK bumped to ^0.3.284 (Claude Code 2.1.284).
+- **Fix: permission reviewers and judges calling mid-turn get an answer** — an extension that takes the bridge's registered `streamSimple` from pi's model registry (a permission reviewer such as pi-auto-review, or a judge) calls it with its own rubric as the system prompt, one user message and no tools, usually while the conversation's query is parked on the very tool call under review. The main lane took that for a reentrant query of the active session, its prompt never resolved against pi's captures, and it threw `prompt-capture: no capture for this N-char system prompt` — the reviewer saw an error in milliseconds and fell back to asking the user. Such calls now take the isolated path the one-off summarizers use (separate `persistSession:false` CC process, the caller's model and prompt, `tools: []`, one turn), logged as `one-shot`. A conversation turn always carries tools, so it can never land there. Covered by `tests/unit-one-shot.mjs` and `tests/int-reviewer-one-shot.mjs`, which fails on the previous build with the prompt-capture throw.
 
 ## 0.9.0 — 2026-09-27
 
