@@ -7,7 +7,7 @@
  */
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { applyLongContext, buildModels, claudeCodeModelId, resolveClaudeCodeRuntimeModel, resolveModel } from "../src/models.js";
+import { applyLongContext, buildModels, claudeCodeModelId, resolveClaudeCodeRuntimeModel, resolveModel, withCatalogSupplements } from "../src/models.js";
 import { getModels } from "@earendil-works/pi-ai/compat";
 
 const PRO = { plan: "pro", longContextExtraUsage: false };
@@ -90,6 +90,34 @@ describe("MODELS projection", () => {
 	it("forwards undefined thinkingLevelMap unchanged (no fabricated defaults)", () => {
 		const models = buildModels([mockPiAiModel("claude-haiku-4-5")]);
 		assert.equal(find(models, "claude-haiku-4-5")?.thinkingLevelMap, undefined);
+	});
+});
+
+describe("catalog supplements", () => {
+	it("adds sonnet-5-5 from sonnet-5's metadata, registered at 200K without a twin", () => {
+		const sonnet5 = oneM("claude-sonnet-5");
+		const supplemented = withCatalogSupplements([sonnet5]);
+		const added = find(supplemented, "claude-sonnet-5-5");
+		assert.equal(added?.name, "Claude Sonnet 5.5");
+		assert.deepEqual(added?.cost, sonnet5.cost);
+		const registered = applyLongContext(buildModels(supplemented), PRO);
+		assert.equal(find(registered, "claude-sonnet-5-5")?.contextWindow, 200000);
+		assert.equal(find(registered, "claude-200k-sonnet-5-5"), undefined);
+		assert.equal(claudeCodeModelId({ id: "claude-sonnet-5-5" }, PRO), "claude-sonnet-5-5");
+	});
+
+	it("yields to pi-ai once the catalog lists the id", () => {
+		const listed = mockPiAiModel("claude-sonnet-5-5", { name: "from pi-ai" });
+		const supplemented = withCatalogSupplements([oneM("claude-sonnet-5"), listed]);
+		assert.deepEqual(supplemented.filter((m) => m.id === "claude-sonnet-5-5"), [listed]);
+	});
+
+	it("skips a supplement whose source model is missing", () => {
+		assert.deepEqual(withCatalogSupplements([oneM("claude-opus-5")]).map((m) => m.id), ["claude-opus-5"]);
+	});
+
+	it("reaches the real catalog projection", () => {
+		assert.ok(find(buildModels(withCatalogSupplements(getModels("anthropic"))), "claude-sonnet-5-5"));
 	});
 });
 
