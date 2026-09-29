@@ -9,7 +9,7 @@ import { appendFileSync, mkdirSync, realpathSync, statSync } from "fs";
 import { homedir } from "os";
 import { dirname, join } from "path";
 import { PROVIDER_ID, messageContentToText, convertPiMessages } from "./convert.js";
-import { applyLongContext, buildModels, type LongContextSettings, resolveClaudeCodeRuntimeModel, resolveModel as _resolveModel } from "./models.js";
+import { applyLongContext, buildModels, type LongContextSettings, resolveClaudeCodeRuntimeModel, resolveModel as _resolveModel, withCatalogSupplements } from "./models.js";
 import { isForeignOneShot } from "./one-shot.js";
 import { MCP_SERVER_NAME, MCP_TOOL_PREFIX, renderSkillsBlock } from "./skills.js";
 import { verifyWrittenSession as _verifyWrittenSession } from "./session-verify.js";
@@ -140,8 +140,9 @@ const SDK_TO_PI_TOOL_NAME: Record<string, string> = {
 	read: "read", write: "write", edit: "edit", bash: "bash",
 };
 
-// MODELS is buildModels(getModels("anthropic")) — projection kept in models.js.
-const MODELS = buildModels(getModels("anthropic"));
+// MODELS is buildModels over pi-ai's anthropic catalog plus the models it does
+// not list yet — projection kept in models.js.
+const MODELS = buildModels(withCatalogSupplements(getModels("anthropic")));
 let providerSettings: NonNullable<Config["provider"]> = {};
 let longContextSettings: LongContextSettings = { plan: "pro", longContextExtraUsage: false };
 // Every Claude Code spawn goes through this, so unit tests can swap in a fake
@@ -2192,7 +2193,7 @@ export default function (pi: ExtensionAPI) {
 		longContextExtraUsage: providerSettings.longContextExtraUsage ?? false,
 		forceTwoHundredK,
 	};
-	const catalogModels = providerSettings.reportApiCost === true ? buildModels(getModels("anthropic"), { apiCost: true }) : MODELS;
+	const catalogModels = providerSettings.reportApiCost === true ? buildModels(withCatalogSupplements(getModels("anthropic")), { apiCost: true }) : MODELS;
 	registeredModels = applyLongContext(catalogModels, longContextSettings);
 	if (registeredModels.length === 0) {
 		console.error("claude-bridge: no models available from pi-ai's anthropic catalog — update @earendil-works/pi-ai (requires >=0.86.1)");

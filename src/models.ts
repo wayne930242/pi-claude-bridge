@@ -29,6 +29,23 @@ function versionRank(id: string): { family: string; tuple: [number, number] } {
 	return { family, tuple: [Number(major) || 0, Number(minor) || 0] };
 }
 
+// Models the API already serves but pi-ai's anthropic catalog does not list yet.
+// Each clones its `from` entry's metadata under the new id and drops out once
+// pi-ai ships the id itself. With no measured row in MEASURED_ONE_M it
+// registers at 200K, and `apiCost` reports the `from` model's list prices.
+const CATALOG_SUPPLEMENTS = [
+	{ id: "claude-sonnet-5-5", name: "Claude Sonnet 5.5", from: "claude-sonnet-5" },
+];
+
+export function withCatalogSupplements<T extends { id: string; name: string }>(piAiModels: T[]): T[] {
+	const listed = new Set(piAiModels.map((m) => m.id));
+	const supplements = CATALOG_SUPPLEMENTS.flatMap(({ id, name, from }) => {
+		const base = piAiModels.find((m) => m.id === from);
+		return listed.has(id) || !base ? [] : [{ ...base, id, name }];
+	});
+	return [...piAiModels, ...supplements];
+}
+
 // Registered cost is zero by default: a subscription is not billed per token.
 // `apiCost` (provider.reportApiCost) keeps pi-ai's list prices instead, so pi
 // reports what the same tokens would cost on the API.
