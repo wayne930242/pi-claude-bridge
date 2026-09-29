@@ -94,16 +94,16 @@ describe("MODELS projection", () => {
 });
 
 describe("catalog supplements", () => {
-	it("adds sonnet-5-5 from sonnet-5's metadata, registered at 200K without a twin", () => {
+	it("adds sonnet-5-5 from sonnet-5's metadata, registered at 1M with a 200K twin", () => {
 		const sonnet5 = oneM("claude-sonnet-5");
 		const supplemented = withCatalogSupplements([sonnet5]);
 		const added = find(supplemented, "claude-sonnet-5-5");
 		assert.equal(added?.name, "Claude Sonnet 5.5");
 		assert.deepEqual(added?.cost, sonnet5.cost);
 		const registered = applyLongContext(buildModels(supplemented), PRO);
-		assert.equal(find(registered, "claude-sonnet-5-5")?.contextWindow, 200000);
-		assert.equal(find(registered, "claude-200k-sonnet-5-5"), undefined);
-		assert.equal(claudeCodeModelId({ id: "claude-sonnet-5-5" }, PRO), "claude-sonnet-5-5");
+		assert.equal(find(registered, "claude-sonnet-5-5")?.contextWindow, 1000000);
+		assert.equal(find(registered, "claude-200k-sonnet-5-5")?.contextWindow, 200000);
+		assert.equal(claudeCodeModelId({ id: "claude-sonnet-5-5" }, PRO), "claude-sonnet-5-5[1m]");
 	});
 
 	it("yields to pi-ai once the catalog lists the id", () => {
