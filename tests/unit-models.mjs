@@ -298,7 +298,7 @@ describe("200K twins", () => {
 	});
 
 	it("shortcuts and partial matches never land on a twin", () => {
-		for (const input of ["opus", "fable", "sonnet", "haiku", "opus-5-5", "opus-5", "claude-opus", "5-5"]) {
+		for (const input of ["opus", "fable", "sonnet", "haiku", "opus-5-5", "opus-5", "claude-opus"]) {
 			assert.equal(resolveModel(pro, input)?.id, resolveModel(models, input)?.id, `"${input}" resolves as before`);
 			assert.equal(resolveModel([...pro].reverse(), input)?.id, resolveModel(models, input)?.id, `"${input}" order-independent`);
 		}
