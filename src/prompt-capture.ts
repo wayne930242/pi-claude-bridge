@@ -11,6 +11,10 @@ export type PromptCaptureInput = {
 	append?: string;
 	contextFiles: { path: string; content: string }[];
 	skills: Skill[];
+	/** Custom prompt sections from `systemPromptOptions.sections`, raw content keyed by
+	 *  section name. pi renders each one as `<name>\ncontent\n</name>` after the built-in
+	 *  sections; the projection does the same. */
+	sections?: Record<string, string>;
 };
 
 type InheritedPrompt = {
@@ -87,6 +91,9 @@ export class PromptCaptures {
 		capture.append = input.append;
 		capture.contextFiles = input.contextFiles.map((file) => ({ ...file }));
 		capture.skills = [...input.skills];
+		// Copied, not referenced: the caller's systemPromptOptions is a live object that
+		// later before_agent_start handlers mutate.
+		capture.sections = { ...input.sections };
 		capture.source = source;
 		if (!existing || customChanged) {
 			capture.inherited = this.findInheritedPrompts(systemPrompt, input.custom);
@@ -189,9 +196,11 @@ export class PromptCaptures {
 				+ `Closest known match diverges at offset ${matches[0]?.firstDivergent ?? "?"} `
 				+ `(${matches.length ? matches[0].key.length : 0}-char key${matches[0]?.source ? `, last recorded at ${matches[0].source}` : ""}). `
 				+ `Claude Code would receive none of this turn's context files, skills or custom instructions. `
-				+ `The usual cause is an extension loaded after claude-bridge that rewrites the system prompt from before_agent_start — `
-				+ `one that wraps it is fine, one that rebuilds or strips it leaves nothing to match. `
-				+ `(Also possible: pi rebuilt the prompt outside before_agent_start — a late-registered tool or fresh resource discovery.)`,
+				+ `When the divergence sits at a section's opening tag, the capture and this prompt disagree about that section — `
+				+ `pi's mcp_servers since pi 0.99.2, or one an extension added. `
+				+ `Otherwise an extension loaded after claude-bridge rewrote the system prompt from before_agent_start — `
+				+ `one that wraps it is fine, one that rebuilds or strips it leaves nothing to match — `
+				+ `or pi rebuilt the prompt outside before_agent_start (a late-registered tool or fresh resource discovery).`,
 			);
 		}
 
@@ -345,6 +354,12 @@ function projectCapture(
 		if (skills) parts.push({ label: "the skills block", text: skills });
 		if (custom) parts.push({ label: "the custom prompt", text: custom });
 		if (capture.append) parts.push({ label: "the appended instructions", text: capture.append });
+		// pi's builder renders custom sections last, after `cwd` — the one built-in section
+		// with nothing portable to forward — so they follow the append here.
+		for (const [name, content] of Object.entries(capture.sections ?? {})) {
+			if (!content) continue;
+			parts.push({ label: `the ${name} section`, text: `<${name}>\n${content}\n</${name}>` });
+		}
 		assertSendablePrompt(parts, capture);
 		return parts.length > 0 ? parts.map((part) => part.text).join("\n\n") : undefined;
 	} finally {

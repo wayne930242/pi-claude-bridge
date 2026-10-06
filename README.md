@@ -118,7 +118,7 @@ When filing a bug about a session-resume failure (e.g. "No conversation found"),
 
 ### Which injection routes reach Claude Code
 
-The bridge forwards pi's structured parts — project context files, skills, custom prompt, appended instructions — and drops the rest. Measured against the request body (`diag/capture-proxy.mjs`):
+The bridge forwards pi's structured parts — project context files, skills, custom prompt, appended instructions, and custom prompt sections (`systemPromptOptions.sections`) — and drops the rest. Measured against the request body (`diag/capture-proxy.mjs`):
 
 | Route | Reaches Claude Code |
 |---|---|
@@ -126,6 +126,7 @@ The bridge forwards pi's structured parts — project context files, skills, cus
 | `context` editing the last user message | Yes, as literal prompt text |
 | `--append-system-prompt` | Yes, with pi's appended instructions |
 | `context_with_system` editing the system message | Yes when it wraps pi's prompt; the turn fails when it replaces one |
+| `before_agent_start` -> `systemPromptOptions.sections` | Yes, one `<name>` block per section |
 | `before_agent_start` -> `systemPrompt` | No, dropped |
 
 Two traps. Returning `systemPrompt` from `before_agent_start` makes pi replace the whole system prompt, discarding any `context_with_system` edit in the same run — only one reaches the request. And system-prompt edits work by *wrapping*: replacing pi's prompt leaves the bridge with nothing to match, so it refuses the turn rather than send Claude Code a request missing your context files, skills and custom instructions. The error names the closest known prompt and where it diverged.

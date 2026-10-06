@@ -580,7 +580,7 @@ test("--thinking-display summarized is still an accepted flag value", { timeout:
 	assert.equal(result?.subtype, "success", `CC rejected --thinking-display summarized: ${JSON.stringify(result)}`);
 });
 
-// --- The gitStatus cache pinning ---
+// --- Captured request contracts ---
 
 /** Stub API: records every /v1/messages body, answers a canned "OK" SSE — or,
  *  with `toolUseFirst`, a call to that tool on the first request. Lets a contract
@@ -629,6 +629,42 @@ function stubApi(requests, { toolUseFirst } = {}) {
 /** cache_control markers are breakpoint directives, not cache-keyed content — CC 2.1.280
  *  moves them (and a 1h ttl) between turns, so payload comparisons strip them. */
 const sansCacheControl = (m) => JSON.parse(JSON.stringify(m, (_k, v) => (v === null || v === undefined) ? v : (typeof v === "object" && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).filter(([key]) => key !== "cache_control")) : v)));
+
+// --- Native instruction exclusions ---
+
+test("claudeMdExcludes prevents native AGENTS.md from duplicating forwarded instructions", { timeout: 120_000 }, async () => {
+	const requests = [];
+	const api = await stubApi(requests);
+	const cwd = mkdtempSync(join(tmpdir(), "cc-agents-exclude-"));
+	const marker = `project-instructions-${randomUUID()}`;
+	writeFileSync(join(cwd, "AGENTS.md"), marker);
+	try {
+		for (const excluded of [false, true]) {
+			const { result } = await collect(query({
+				prompt: "Reply OK.",
+				options: providerOptions({
+					cwd, maxTurns: 1, persistSession: false,
+					env: { ...process.env, ANTHROPIC_BASE_URL: api.url, ENABLE_CLAUDEAI_MCP_SERVERS: "0", DISABLE_AUTO_COMPACT: "1" },
+					settings: { claudeMdExcludes: ["**/CLAUDE.md", "**/.claude/rules/**", ...(excluded ? ["**/AGENTS.md"] : [])] },
+					systemPrompt: { type: "preset", preset: "claude_code", append: marker },
+				}),
+			}));
+			assert.equal(result?.subtype, "success");
+			const request = requests.at(-1);
+			assert.ok(request, "CC sent no request");
+			const system = JSON.stringify(request.system);
+			const messages = JSON.stringify(request.messages);
+			assert.equal(system.split(marker).length - 1, 1, "forwarded instructions must remain");
+			assert.equal(messages.split(marker).length - 1, excluded ? 0 : 1,
+				excluded ? "native AGENTS.md survived the exclusion" : "CC did not load AGENTS.md — check ambient exclusions or native loading changes");
+		}
+	} finally {
+		api.close();
+		rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+// --- The gitStatus cache pinning ---
 
 test("includeGitInstructions:false strips gitStatus and keeps the preset static across git transitions", { timeout: 180_000 }, async () => {
 	// The claude_code preset embeds a gitStatus snapshot (git status --short +

@@ -56,17 +56,17 @@ const CC_CHILD_ENV = {
 } as const;
 
 // Pi owns context files on the provider path, so Claude Code must not load its
-// own on top: otherwise a project CLAUDE.md arrives twice, and the user's
-// ~/.claude/CLAUDE.md — a persona written for a harness that is not the one
-// running — arrives at all, stamped "These instructions OVERRIDE any default
+// own on top: otherwise project CLAUDE.md/AGENTS.md files arrive twice, and
+// ~/.claude/CLAUDE.md — a user persona written for a harness that is not the
+// one running — arrives at all, stamped "These instructions OVERRIDE any default
 // behavior" and outranking Pi's own AGENTS.md.
 //
 // Excludes rather than settingSources: the source gate that suppresses CLAUDE.md
 // is the same one that reads settings.json, where Bedrock/Vertex users keep
 // `env` and `apiKeyHelper`. Patterns are matched with picomatch against absolute
-// paths; "**/CLAUDE.md" covers the user, ancestor, project and .claude/ copies,
+// paths; the filename globs cover user, ancestor, project and .claude/ copies,
 // while rules need their own. Managed/policy memory is not excludable by design.
-const CLAUDE_MD_EXCLUDES = ["**/CLAUDE.md", "**/.claude/rules/**"];
+const CLAUDE_MD_EXCLUDES = ["**/CLAUDE.md", "**/AGENTS.md", "**/.claude/rules/**"];
 
 // Ensure the debug log directory exists when debug is enabled
 if (DEBUG) {
@@ -2469,7 +2469,7 @@ export default function (pi: ExtensionAPI) {
 	// Code's preset carries its own tool and permission guidance that the bridge
 	// still depends on, so both flags are forwarded as an append.
 	//
-	// The options (custom/append/contextFiles/skills) are pi config, stable across a
+	// The options (custom/append/contextFiles/skills/sections) are pi config, stable across a
 	// turn; only the auto-generated tool list in the rendered prompt varies. Stash them
 	// at before_agent_start so the agent_start recording below can reuse them.
 	type RecordOptions = Parameters<typeof recordSystemPrompt>[2];
@@ -2479,6 +2479,7 @@ export default function (pi: ExtensionAPI) {
 		appendSystemPrompt?: string;
 		contextFiles?: { path: string; content: string }[];
 		skills?: Parameters<typeof promptCaptures.record>[1]["skills"];
+		sections?: Record<string, string>;
 		selectedTools?: string[];
 	} | undefined) {
 		if (!systemPrompt) return;
@@ -2488,6 +2489,7 @@ export default function (pi: ExtensionAPI) {
 			append: options?.appendSystemPrompt,
 			contextFiles: options?.contextFiles ?? [],
 			skills: hasRead ? options?.skills ?? [] : [],
+			sections: options?.sections,
 		}, source);
 	}
 	pi.on("before_agent_start", (event) => {
