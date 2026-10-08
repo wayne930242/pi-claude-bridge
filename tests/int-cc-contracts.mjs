@@ -11,9 +11,8 @@
 // as soon as the message they care about arrives. Run the whole file on every
 // @anthropic-ai/claude-agent-sdk or Claude Code bump.
 //
-// Verified against: SDK 0.3.284 / Claude Code 2.1.284. package.json declares
-// ^0.3.284 and package-lock.json resolves 0.3.285 (Claude Code 2.1.285), which
-// has not been run through this file.
+// Verified against: SDK 0.3.293 / Claude Code 2.1.293. package.json declares
+// ^0.3.293 and package-lock.json resolves 0.3.293.
 //
 // Assumptions that are NOT covered here, and why:
 //   - DISABLE_AUTO_COMPACT=1 stops CC-side autocompaction. Provoking it needs a
@@ -245,11 +244,15 @@ test("is_error can be true on a result whose subtype is still success", { timeou
 	// the dedicated error subtypes carry `errors` instead.
 	let result = null;
 	let threw = null;
+	const assistantMessages = [];
+	const streamEventTypes = [];
 	try {
 		for await (const message of query({
 			prompt: `Summarize this in one word:\n${"banana ".repeat(220_000)}`,
-			options: providerOptions({ maxTurns: 1, persistSession: false }),
+			options: providerOptions({ maxTurns: 1, persistSession: false, includePartialMessages: true }),
 		})) {
+			if (message.type === "stream_event") streamEventTypes.push(message.event?.type);
+			if (message.type === "assistant") assistantMessages.push(message);
 			if (message.type === "result") result = message;
 		}
 	} catch (error) {
@@ -263,6 +266,21 @@ test("is_error can be true on a result whose subtype is still success", { timeou
 	// The SDK then rejects the generator, which is why the provider's catch path
 	// has to prefer the text consumeQuery already recorded off the result.
 	assert.match(threw?.message ?? "", /too long/i, `SDK swallowed the cause: ${threw?.message}`);
+
+	// CC prefixes the failure with a `<synthetic>` assistant message carrying the
+	// same text — its own report, not model output. src/index.ts keys its
+	// keep-off-the-stream branch (issue #162) on model === "<synthetic>". With
+	// partial messages on, the failure is not preceded by content stream_events
+	// (message_start is fine; the branch drops abandoned blocks if one slipped
+	// through), so a synthetic report after a stalled stream is still handled.
+	assert.ok(assistantMessages.length > 0, "no assistant message preceded the failure result");
+	assert.ok(streamEventTypes.every((t) => t === "message_start" || t === "ping"),
+		`stream_events preceded the failure: ${JSON.stringify(streamEventTypes)}`);
+	for (const { message } of assistantMessages) {
+		assert.equal(message.model, "<synthetic>", `failure report is not synthetic: model=${message.model}`);
+		assert.ok((message.content ?? []).some((b) => b.type === "text" && /too long/i.test(b.text ?? "")),
+			`synthetic message lost the failure text: ${JSON.stringify(message.content)?.slice(0, 200)}`);
+	}
 });
 
 test("result.modelUsage reports the served context window", { timeout: 120_000 }, async () => {

@@ -1,6 +1,6 @@
 {
   "name": "pi-claude-bridge",
-  "version": "0.9.1",
+  "version": "0.9.2",
   "private": false,
   "description": "Pi extension that uses Claude Code (via Agent SDK) as a model provider and adds an AskClaude tool.",
   "keywords": [
@@ -33,7 +33,7 @@
   },
   "type": "module",
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.3.284",
+    "@anthropic-ai/claude-agent-sdk": "^0.3.293",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "cc-session-io": "^0.4.0",
     "change-case": "^5.4.4"
