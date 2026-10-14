@@ -8,6 +8,19 @@
 - **Add: Claude Sonnet 5.5 ahead of pi-ai's catalog** — the API serves `claude-sonnet-5-5` (a live `claude -p --model claude-sonnet-5-5` turn reports it as the served model), but pi-ai 0.87.1's anthropic catalog does not list it, so the picker could not offer it. `withCatalogSupplements` in `src/models.ts` registers it from `claude-sonnet-5`'s metadata until pi-ai ships the id, then yields to the catalog entry. Upstream measured it at 1M, so it registers at 1M with a `claude-200k-sonnet-5-5` twin. Covered by `tests/unit-models.mjs`.
 - **Add: `provider.reportApiCost` prices usage at API list prices** — every model registers with zero cost, since a subscription is not billed per token, so pi's cost displays (`/session`, footer themes) always read $0. With the option set, models keep pi-ai's catalog prices and the per-message `usage.cost` the bridge already computes reflects what the same tokens would cost on the API. Off by default. Covered by `tests/unit-models.mjs`.
 
+## 0.9.3 — 2026-10-13
+
+- **Remove: compaction and branch-summary takeovers (#189)** — pi runs them natively; the bridge routes summary calls to its isolated path. Other compaction extensions should now work. Resolves #115. Thanks @sonSunnoi.
+- **Deprecate: AskClaude tool** — Show a one-time notice on first use; remove the startup reminder to opt in.
+- **Fix: Haiku 5.5 registered at 1M (#190)** — Thanks @Blue-B.
+- **Fix: hang when a stream is cut right after a tool call starts (#146)** — Tool calls now dispatch only once their block closes, so pi no longer gets a `{}`-argument call Claude Code has dropped. Thanks @andreypopp.
+- **Fix: tool result after a restart resumes the turn (#174)** — a result with no parked query ends the turn only when pi delivers it on an aborted request; otherwise (restart, crash, stall, retry) it resumes the Claude Code session. Thanks @jcwasher.
+- **Fix: Claude Code runs in the pi session's cwd (#175)** — hosts serving many sessions from one process (pi-web) spawned it in the host process cwd, so it loaded that directory's AGENTS.md and mirrored the session under the wrong project. Thanks @SoulKyu.
+- **Add: report plan usage through pi's `after_provider_response` (#171)** — Claude Code's usage updates arrive as `anthropic-ratelimit-unified-*` headers, so extensions that read usage from the built-in `anthropic` provider work with the bridge too. Thanks @fj.
+- **Fix: one-off calls honor the caller's reasoning level (#184)** — compaction summaries, `/bug-report` summaries and extension one-shots that pass `reasoning` now send it to Claude Code as `effort` instead of using its default. Thanks @roberthmms.
+- **Fix: exhausted subscription windows go straight to fallback (#183)** — the error now leads with "Claude quota exceeded", which pi does not retry, and still says "rate limit" for fallback chains. Thanks @good-nightmoon.
+- **Fix: tools with a top-level `anyOf`/`oneOf`/`allOf` schema (#180, issue #179)** — Claude Code dropped them, so a call could run twice or hang the turn. The bridge now flattens the schema the way CC's own normalizer does. Thanks @MataM15.
+
 ## 0.9.2 — 2026-10-07
 
 - **Fix: synthetic failure notices no longer stream as assistant output (#162)** — keeps pre-output failover working for consumers like pi-model-fallback-alias; the notice text stays on the failed turn's error event. A notice following a stalled stream also drops the dead stream's abandoned partial blocks.
