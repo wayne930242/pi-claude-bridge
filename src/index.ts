@@ -113,9 +113,10 @@ function ccChildEnv(overrides: Record<string, string> = {}, parent: NodeJS.Proce
 // one running — arrives at all, stamped "These instructions OVERRIDE any default
 // behavior" and outranking Pi's own AGENTS.md.
 //
-// Excludes rather than settingSources: the source gate that suppresses CLAUDE.md
-// is the same one that reads settings.json, where Bedrock/Vertex users keep
-// `env` and `apiKeyHelper`. Patterns are matched with picomatch against absolute
+// The provider path loads no setting sources at all, so this matters most for
+// AskClaude, which keeps "user" and "project": the source gate that suppresses
+// CLAUDE.md is the same one that reads settings.json, where Bedrock/Vertex users
+// keep `env` and `apiKeyHelper`. Patterns are matched with picomatch against absolute
 // paths; the filename globs cover user, ancestor, project and .claude/ copies,
 // while rules need their own. Managed/policy memory is not excludable by design.
 const CLAUDE_MD_EXCLUDES = ["**/CLAUDE.md", "**/AGENTS.md", "**/.claude/rules/**"];
@@ -2213,11 +2214,13 @@ function streamClaudeAgentSdk(model: Model<any>, context: Context, options?: Sim
 			tools: [],
 			permissionMode: "bypassPermissions",
 			includePartialMessages: true,
-			// User settings only. A repo's .claude/settings.json and settings.local.json can
-			// carry hooks, apiKeyHelper, env and plugins, and Claude Code trusts the workspace
-			// when it isn't interactive, so they would run with no prompt. ~/.claude/settings.json
-			// still loads: Bedrock/Vertex users keep env and apiKeyHelper there.
-			settingSources: ["user"] as SettingSource[],
+			// No setting sources. Pi owns permissions, hooks and safety checks on this path:
+			// Claude Code's user/project/local settings.json would add a second layer
+			// (permission rules, auto-mode classifier, hooks firing on every turn) on top of
+			// pi's, and a repo's project/local files can carry hooks, apiKeyHelper, env and
+			// plugins that Claude Code runs unprompted when it isn't interactive. Same as the
+			// isolated summary path. The inline `settings` below still apply.
+			settingSources: [] as SettingSource[],
 			// includeGitInstructions:false drops the gitStatus block from the preset.
 			// That block is the trailing suffix of the cached system block, and a
 			// git-state transition (new file, staging, commit) rewrites it — busting
