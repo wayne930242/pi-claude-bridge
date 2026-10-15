@@ -57,9 +57,10 @@ const CC_CHILD_ENV = {
 // one running — arrives at all, stamped "These instructions OVERRIDE any default
 // behavior" and outranking Pi's own AGENTS.md.
 //
-// Excludes rather than settingSources: the source gate that suppresses CLAUDE.md
-// is the same one that reads settings.json, where Bedrock/Vertex users keep
-// `env` and `apiKeyHelper`. Patterns are matched with picomatch against absolute
+// The provider path loads no setting sources at all, so this matters most for
+// AskClaude, which keeps "user" and "project": the source gate that suppresses
+// CLAUDE.md is the same one that reads settings.json, where Bedrock/Vertex users
+// keep `env` and `apiKeyHelper`. Patterns are matched with picomatch against absolute
 // paths; the filename globs cover user, ancestor, project and .claude/ copies,
 // while rules need their own. Managed/policy memory is not excludable by design.
 const CLAUDE_MD_EXCLUDES = ["**/CLAUDE.md", "**/AGENTS.md", "**/.claude/rules/**"];
@@ -2065,8 +2066,8 @@ function streamClaudeAgentSdk(model: Model<any>, context: Context, options?: Sim
 	// MCP auto-loading suppression: CC reads MCP servers from ~/.claude.json (top-level
 	// + per-project) and .mcp.json. Since pi executes tools (not CC), those are pure
 	// token overhead. --strict-mcp-config tells the binary to use ONLY mcpServers passed
-	// programmatically and ignore filesystem MCP entries — applied unconditionally because
-	// settingSources is left at CC's default, which loads all sources.
+	// programmatically and ignore filesystem MCP entries — ~/.claude.json is not a setting
+	// source, so settingSources: [] below does not cover it.
 	const strictMcpConfigEnabled = providerSettings.strictMcpConfig !== false;
 	const claudeExecutable = providerSettings.pathToClaudeCodeExecutable;
 
@@ -2094,6 +2095,11 @@ function streamClaudeAgentSdk(model: Model<any>, context: Context, options?: Sim
 		env: childEnv,
 		tools: [],
 		permissionMode: "bypassPermissions",
+		// Pi owns permissions, hooks and safety checks on this path: Claude Code's
+		// user/project/local settings.json would add a second layer (permission
+		// rules, auto-mode classifier, hooks firing on every turn) on top of pi's.
+		// Same as the isolated summary path. The inline `settings` below still apply.
+		settingSources: [] as SettingSource[],
 		includePartialMessages: true,
 		// includeGitInstructions:false drops the gitStatus block from the preset.
 		// That block is the trailing suffix of the cached system block, and a
