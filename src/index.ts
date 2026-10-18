@@ -2502,7 +2502,7 @@ export default function (pi: ExtensionAPI) {
 	const catalogModels = providerSettings.reportApiCost === true ? buildModels(withCatalogSupplements(getModels("anthropic")), { apiCost: true }) : MODELS;
 	registeredModels = applyLongContext(catalogModels, longContextSettings);
 	if (registeredModels.length === 0) {
-		console.error("claude-bridge: no models available from pi-ai's anthropic catalog — update @earendil-works/pi-ai (requires >=0.86.1)");
+		console.error("claude-bridge: no models available from pi-ai's anthropic catalog — update @earendil-works/pi-ai (requires >=1.2.0)");
 	}
 
 	if (!config.startupNoticeShown && config.provider?.plan === undefined) {
