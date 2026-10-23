@@ -20,7 +20,7 @@ import { extractAllToolResults as _extractAllToolResults, type McpResult } from 
 import { digestMessage, digestMessages } from "./message-digests.js";
 import { compareHistory, copyRecording, importHistory, LiveRecording, type Recording, type SessionState } from "./session-sync.js";
 import { deleteSessionState, loadSessionState, saveSessionState } from "./session-store.js";
-import { QueryContext, type AssistantStep } from "./query-state.js";
+import { QueryContext, type AssistantStep, type PendingToolCall } from "./query-state.js";
 import { makePromptStream, userMessage, type PromptStream } from "./prompt-stream.js";
 import { claudeCodeSettings, loadConfig, markAskClaudeDeprecationNoticeShown, markStartupNoticeShown, type Config } from "./config.js";
 import {
@@ -886,6 +886,7 @@ export const __test = {
 	finalizeCurrentStream,
 	resultErrorText,
 	deliverToolResults,
+	toMcpToolDefs,
 	drainForAbort,
 	CC_CHILD_ENV,
 	ccChildEnv,
@@ -1070,6 +1071,26 @@ function resolveMcpTools(context: Context, excludeToolName?: string): {
 	return { mcpTools, customToolNameToSdk, customToolNameToPi };
 }
 
+// A handler waits for the result of a tool call Claude Code dispatched, and results
+// come only from pi running the calls it was handed. When a call reaches Claude Code
+// but never pi (a parallel call dropped between them, as in the fallback bug fixed
+// above), nothing can ever answer it: the handler waits forever and the turn sits on
+// "Working" until a person aborts it. Whether pi has the call is checked after the
+// timeout, not on arrival, because a handler can legitimately run ahead of the stream
+// event that tells the bridge about its call. A call pi did receive is never failed:
+// its tool may run for an hour.
+function watchForLostToolCall(c: QueryContext, toolCallId: string, pending: PendingToolCall, parkedAt = Date.now()): void {
+	pending.watchdog = setTimeout(() => {
+		if (c.pendingToolCalls.get(toolCallId) !== pending) return; // answered, released or replaced
+		if (c.knowsToolCall(toolCallId)) {
+			watchForLostToolCall(c, toolCallId, pending, parkedAt);
+			return;
+		}
+		failLostToolCall(c, toolCallId, pending.toolName, Date.now() - parkedAt);
+	}, c.lostCallTimeoutMs);
+	pending.watchdog.unref?.();
+}
+
 // Creates an MCP server that bridges pi tools to the SDK. Each tool handler
 // blocks on a Promise until pi delivers the tool result via streamSimple.
 // Handlers receive their toolCallId from Claude's tools/call _meta, so results
@@ -1094,7 +1115,15 @@ function toMcpToolDefs(tools: Tool[], queryCtx: QueryContext) {
 			}
 			debug(`mcp handler: ${tool.name} [${toolCallId}] → waiting`);
 			return new Promise<McpResult>((resolve) => {
-				queryCtx.pendingToolCalls.set(toolCallId, { toolName: tool.name, resolve });
+				const pending: PendingToolCall = {
+					toolName: tool.name,
+					resolve: (result) => {
+						clearTimeout(pending.watchdog);
+						resolve(result);
+					},
+				};
+				watchForLostToolCall(queryCtx, toolCallId, pending);
+				queryCtx.pendingToolCalls.set(toolCallId, pending);
 			});
 		},
 	}));
@@ -1438,6 +1467,7 @@ function processStreamEvent(
 function endTurnOnToolUse(c: QueryContext): void {
 	if (!c.currentPiStream || !c.turnOutput) return;
 	c.clearToolUseSettle();
+	for (const block of c.turnOutput.content) if (block.type === "toolCall") c.deliveredToolCallIds.add(block.id);
 	c.turnOutput.stopReason = "toolUse";
 	recordAssistantEmission(c);
 	const stream = c.currentPiStream;
@@ -1926,16 +1956,16 @@ function discardRewrittenQuery(c: QueryContext): void {
 	finally { dropParkedQuery(c); }
 }
 
-function dropParkedQuery(c: QueryContext): void {
+function dropParkedQuery(c: QueryContext, reason = "Context changed; this query was discarded.", streamError = "Conversation replaced"): void {
 	c.discarded = true;
 	const discarded = c.activeQuery as { interrupt?: () => Promise<unknown>; close?: () => void } | null;
 	if (discarded) abandonedQueries.add(discarded);
 	c.activeQuery = null;
 	activeQueryContexts.delete(c);
 	c.turnToolCallIds = [];
-	c.promptStream?.fail(new Error("conversation rewritten"));
+	c.promptStream?.fail(new Error("query discarded"));
 	c.promptStream = null;
-	c.releasePendingToolCalls("Context changed; this query was discarded.");
+	c.releasePendingToolCalls(reason);
 	if (c.stopProcess) c.stopProcess();
 	else {
 		void discarded?.interrupt?.().catch(() => {});
@@ -1943,7 +1973,7 @@ function dropParkedQuery(c: QueryContext): void {
 	}
 	if (c.currentPiStream && c.turnOutput) {
 		c.turnOutput.stopReason = "error";
-		c.turnOutput.errorMessage = "Conversation replaced";
+		c.turnOutput.errorMessage = streamError;
 		c.currentPiStream.push({ type: "error", reason: "error", error: c.turnOutput });
 		markStreamComplete(c.currentPiStream);
 		c.currentPiStream.end();
@@ -1951,6 +1981,30 @@ function dropParkedQuery(c: QueryContext): void {
 	}
 	if (c.piSessionId) historyRewrittenBySession.delete(c.piSessionId);
 	debug("provider: discarded parked query; its recorded prefix remains available for a fork");
+}
+
+/** End a turn whose handler waits on a tool call pi never received (watchForLostToolCall).
+ *  Waiting longer cannot help: pi runs only the calls it was handed, so no result for
+ *  this one will ever be delivered. The query goes the way a discarded one does, and a
+ *  stream pi is waiting on fails with the reason. When pi is still running the calls it
+ *  did get, there is no stream yet; its results then find no parked query and resume
+ *  the turn from pi's history, which never held the lost call. */
+function failLostToolCall(c: QueryContext, toolCallId: string, toolName: string, waitedMs: number): void {
+	const waitedSeconds = Math.round(waitedMs / 1000);
+	const message = `Claude Code called ${toolName} [${toolCallId}], a tool call pi never received, and waited ${waitedSeconds}s for a result that cannot arrive. `
+		+ `The turn was ended instead of waiting; send a message to continue.`;
+	debug(`WARNING: ${message}`);
+	diagDump("lost_tool_call", {
+		toolName, toolCallId, waitedSeconds,
+		turnToolCallIds: c.turnToolCallIds,
+		deliveredToolCallIds: [...c.deliveredToolCallIds],
+		pendingToolCallIds: [...c.pendingToolCalls.keys()],
+		turnBlockTypes: c.turnOutput?.content.map((b: any) => b.type) ?? null,
+		streamOpen: Boolean(c.currentPiStream),
+	});
+	try { c.commitRecording?.(true); }
+	finally { dropParkedQuery(c, `The bridge never received tool call ${toolCallId} from Claude Code's message; the turn was ended.`, message); }
+	piUI?.notify(`Claude bridge: ${message}`, "error");
 }
 
 /** Provider entry point. Pi calls this for each new prompt and each tool result.
