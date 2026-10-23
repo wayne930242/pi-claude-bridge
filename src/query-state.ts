@@ -15,7 +15,13 @@ import type { RateLimitInfo } from "./rate-limit.js";
 export interface PendingToolCall {
 	toolName: string;
 	resolve: (result: McpResult) => void;
+	/** Fires when the call has waited long enough to check that pi knows about it. */
+	watchdog?: ReturnType<typeof setTimeout>;
 }
+
+/** How long an MCP handler may wait for a tool call pi was never handed before the turn
+ *  is failed. A call pi did receive is never failed, however long its tool runs. */
+const LOST_TOOL_CALL_TIMEOUT_MS = 120_000;
 
 export class QueryContext {
 	// Query-scoped (fully isolated per query)
@@ -33,6 +39,12 @@ export class QueryContext {
 	 *  to the owning query when several queries are in flight — pairing a result
 	 *  to its call is done by id from Claude's tools/call _meta, not from here. */
 	turnToolCallIds: string[] = [];
+	/** Every tool call id pi has been handed over the query's turns: the calls of each
+	 *  stream the bridge ended on toolUse. With the current turn's tool calls it is the
+	 *  set of ids a result can still come back for. */
+	deliveredToolCallIds = new Set<string>();
+	/** See LOST_TOOL_CALL_TIMEOUT_MS; a field so tests need not wait it out. */
+	lostCallTimeoutMs = LOST_TOOL_CALL_TIMEOUT_MS;
 	/** Streaming-input handle for the active query — how steers reach CC mid-turn. */
 	promptStream: PromptStream | null = null;
 	/** The query's MCP tool server and the pi tool names it serves. A pi tool set that
@@ -88,6 +100,12 @@ export class QueryContext {
 	 *  raced one can tell. */
 	toolUseSettle: { timer: ReturnType<typeof setTimeout>; stream: AssistantMessageEventStream } | null = null;
 	toolUseSettleSeq = 0;
+
+	/** Whether pi has the tool call, or will have it when the stream being built ends. */
+	knowsToolCall(id: string): boolean {
+		if (this.deliveredToolCallIds.has(id)) return true;
+		return this.turnOutput?.content.some((b: any) => b.type === "toolCall" && b.id === id) ?? false;
+	}
 
 	get turnBlocks(): Array<any> {
 		if (!this.turnOutput) throw new Error("turnBlocks accessed before resetTurnState");
