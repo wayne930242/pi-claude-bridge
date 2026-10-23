@@ -106,6 +106,12 @@ export class QueryContext {
 	/** API message id of the non-streaming fallback being delivered from `assistant`
 	 *  messages. The SDK hands it over one block per message, all under this id. */
 	turnFallbackMessageId: string | undefined;
+	/** Holds a fallback's tool-use stop open until the rest of its blocks have arrived:
+	 *  nothing marks the last one, and the blocks after the first are lost once the pi
+	 *  stream has ended. `toolUseSettleSeq` counts fallback blocks seen, so a timer that
+	 *  raced one can tell. */
+	toolUseSettle: { timer: ReturnType<typeof setTimeout>; stream: AssistantMessageEventStream } | null = null;
+	toolUseSettleSeq = 0;
 
 	get turnBlocks(): Array<any> {
 		if (!this.turnOutput) throw new Error("turnBlocks accessed before resetTurnState");
@@ -121,6 +127,11 @@ export class QueryContext {
 		for (const pending of this.pendingToolCalls.values()) pending.resolve({ content: [{ type: "text", text: reason }] });
 		this.pendingToolCalls.clear();
 		this.pendingResults.clear();
+	}
+
+	clearToolUseSettle(): void {
+		if (this.toolUseSettle) clearTimeout(this.toolUseSettle.timer);
+		this.toolUseSettle = null;
 	}
 
 	resetTurnState(model: Model<any>): void {
@@ -141,6 +152,7 @@ export class QueryContext {
 		this.turnStreamOpen = false;
 		this.turnStreamBlockStart = 0;
 		this.turnFallbackMessageId = undefined;
+		this.clearToolUseSettle();
 		// turnToolCallIds is NOT reset — it persists across tool-result delivery
 		// callbacks within the same assistant message so results can be routed to
 		// this query while its handlers are still pending.
