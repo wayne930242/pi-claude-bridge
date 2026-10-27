@@ -21,7 +21,7 @@ Pi extension that integrates Claude Code via the [Agent SDK](https://github.com/
 pi install npm:pi-claude-bridge
 ```
 
-Requires pi 0.86.1 or newer.
+Requires pi 1.2.0 or newer to use all models (but should mostly work >=0.86.1).
 
 ## Provider
 
@@ -72,7 +72,7 @@ Config: `~/.pi/agent/claude-bridge.json` (global) or the project Pi config direc
 
 `provider`:
 - `plan` (default `"pro"`) — set to `"max"` if you have a Max (or Team Premium/Enterprise) Anthropic plan. This enables Opus with 1M context.
-- `longContextExtraUsage` — set to `true` to enable 1M context models even if they cost money through Extra Usage on your plan. It enables Sonnet 4.6 with 1M on every plan and Opus 4.6 with 1M on Pro. Not needed for Opus 4.7 or 4.8.
+- `longContextExtraUsage` — set to `true` to enable 1M context models even if they cost money through Extra Usage on your plan. It enables Sonnet 4.6 with 1M on every plan and Opus 4.6 with 1M on Pro.
 - `reportApiCost` — set to `true` to price usage at pi-ai's Anthropic API list prices, so pi's cost displays (`/session`, footer themes) show what the same tokens would cost on the API. Default `false` reports $0, since a subscription is not billed per token.
 - `forceTwoHundredK` — array of model ids to pin to 200K context (bare id, no `[1m]` suffix). Use if pi-ai declares a model at 1M but Claude Code won't serve it on your plan.
 - `strictMcpConfig` — block MCP servers from `~/.claude.json` / `.mcp.json` (default `true`). Cloud MCP (Gmail/Drive via claude.ai OAuth) is always blocked.
@@ -82,7 +82,7 @@ Config: `~/.pi/agent/claude-bridge.json` (global) or the project Pi config direc
 
 **Notices:** the startup notice points out when `provider.plan` is unset and records `startupNoticeShown` in the global config. There's also a deprecation notice on first use of AskClaude that records its display date as `askClaudeDeprecationShown`.
 
-**Extension providers and models.json:** pi's `modelOverrides` in `~/.pi/agent/models.json` do not currently apply to extension-registered providers (like claude-bridge). Overriding `contextWindow` or other fields requires editing `src/models.ts` directly — to pin a model to 200K, use `provider.forceTwoHundredK` instead.
+**Extension providers and models.json:** pi's `modelOverrides` in `~/.pi/agent/models.json` do not work correctly with pi-claude-bridge; they only apply to pi-side settings like compaction threshold. Overriding `contextWindow` or other fields requires editing `src/models.ts` directly — to pin a model to 200K, use `provider.forceTwoHundredK` instead.
 
 ## Tests
 

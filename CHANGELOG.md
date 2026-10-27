@@ -11,6 +11,13 @@
 - **Add: Claude Sonnet 5.5 ahead of pi-ai's catalog** — the API serves `claude-sonnet-5-5` (a live `claude -p --model claude-sonnet-5-5` turn reports it as the served model), but pi-ai 0.87.1's anthropic catalog does not list it, so the picker could not offer it. `withCatalogSupplements` in `src/models.ts` registers it from `claude-sonnet-5`'s metadata until pi-ai ships the id, then yields to the catalog entry. Upstream measured it at 1M, so it registers at 1M with a `claude-200k-sonnet-5-5` twin. Covered by `tests/unit-models.mjs`.
 - **Add: `provider.reportApiCost` prices usage at API list prices** — every model registers with zero cost, since a subscription is not billed per token, so pi's cost displays (`/session`, footer themes) always read $0. With the option set, models keep pi-ai's catalog prices and the per-message `usage.cost` the bridge already computes reflects what the same tokens would cost on the API. Off by default. Covered by `tests/unit-models.mjs`.
 
+## UNRELEASED
+
+- **Bump: Claude Agent SDK 0.3.308 (Claude Code 2.1.308)** — Claude Code's new per-request log in session files is turned off; it made them about a third larger.
+- **Fix: queued steering keeps MCP input open through later turns (#172)** — Keep Claude Code's input open until each steer is replayed into a turn, then close after that turn completes. An error result still ends the query, so a steer Claude Code had queued can no longer run on and replace the failure. Thanks @Maverobot.
+- **Fix: abort ignored after a terminated tool batch (#200, issue #199)** — when a run ended with Claude Code's query parked at a tool call (`terminate: true`), aborting the next run did nothing. Each run that continues the query now binds its own signal. Thanks @orshih6 and @cootue.
+- **Fix: teardown rewrote a finished tool-call turn (issue #181)** — an abort, crash or error after a turn ended on a tool call changed pi's copy of that message to aborted/error, which could later orphan its tool result on Codex. Thanks @good-nightmoon.
+
 ## 0.9.3 — 2026-10-13
 
 - **Remove: compaction and branch-summary takeovers (#189)** — pi runs them natively; the bridge routes summary calls to its isolated path. Other compaction extensions should now work. Resolves #115. Thanks @sonSunnoi.
