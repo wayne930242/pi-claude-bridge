@@ -149,6 +149,23 @@ describe("custom section order across delete-then-re-add", () => {
 
 	it("keeps the inheritance route ahead of the reorder route", () => {
 		const captures = new PromptCaptures();
+		// The live sequence: the turn without alpha recorded its own capture, then alpha came back.
+		const withoutAlpha = recordFromBuilder(captures, { beta: BETA });
+		const both = recordFromBuilder(captures, { alpha: ALPHA, beta: BETA });
+		const query = replayed(transcript({ alpha: ALPHA, beta: BETA }, { beta: BETA }, { alpha: ALPHA, beta: BETA }));
+		// Both routes can account for this prompt: it embeds the alpha-less capture verbatim, and
+		// it is the two-section capture with its blocks reordered.
+		assert.ok(query.startsWith(withoutAlpha));
+		assert.equal(query.length, both.length);
+		assert.notEqual(query, both);
+		const derived = captures.resolveOrDerive(query);
+		assert.notEqual(derived, captures.resolve(both));
+		assert.equal(derived.custom, query);
+		assert.equal(derived.inherited?.length, 1);
+	});
+
+	it("still derives a descendant for a sub-agent that wraps the parent's prompt", () => {
+		const captures = new PromptCaptures();
 		const key = recordFromBuilder(captures, { alpha: ALPHA, beta: BETA });
 		// A sub-agent embedding the parent's prompt verbatim must still derive a descendant that
 		// carries the child's wrapper text, never adopt the parent's capture.
