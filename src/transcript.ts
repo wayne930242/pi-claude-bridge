@@ -21,10 +21,12 @@ import {
 /** pi's canonical built-in section order. A name absent from the table is a custom
  *  section, which the builder renders after every built-in; see stableRanked.
  *  Known limitation: customs keep their replayed relative order here, while the builder
- *  takes theirs from `systemPromptOptions.sections`. The two agree unless a custom moves
- *  without its content changing — pi's section diff then emits nothing for it, the replay
- *  keeps the stale position, and the exact-key capture lookup throws on that legitimate
- *  turn. */
+ *  takes theirs from `systemPromptOptions.sections`. The two disagree when a custom moves
+ *  without its content changing (pi's section diff emits nothing for it, so the replay
+ *  keeps the stale position) and when one is deleted and re-added (the replay Map appends
+ *  it). Reordering customs cannot be done here, since the transcript does not record the
+ *  builder's order; `PromptCaptures.resolveOrDerive` instead accepts a replayed prompt that
+ *  differs from a recorded capture only in the relative order of its custom blocks. */
 const SECTION_RANK = new Map<string, number>([
 	["preamble", 0], ["tools", 1], ["rules", 2], ["docs", 3], ["addendum", 4],
 	["project_context", 5], ["skills", 6], ["cwd", 7],

@@ -53,6 +53,28 @@ export type PromptCaptureDiagnostic = {
 	matches: { key: string; firstDivergent: number; source?: string }[];
 };
 
+/** pi's builder joins prompt sections with a blank line. */
+const CUSTOM_BLOCK_SEPARATOR = "\n\n";
+
+/** Whether `text` is exactly `blocks`, each once, joined by the separator in some order. */
+function isBlockPermutation(text: string, blocks: readonly string[]): boolean {
+	const used = new Array<boolean>(blocks.length).fill(false);
+	const consume = (offset: number, remaining: number): boolean => {
+		if (remaining === 0) return offset === text.length;
+		for (let i = 0; i < blocks.length; i++) {
+			if (used[i] || !text.startsWith(blocks[i], offset)) continue;
+			const end = offset + blocks[i].length;
+			const next = remaining === 1 ? end : end + CUSTOM_BLOCK_SEPARATOR.length;
+			if (remaining > 1 && !text.startsWith(CUSTOM_BLOCK_SEPARATOR, end)) continue;
+			used[i] = true;
+			if (consume(next, remaining - 1)) return true;
+			used[i] = false;
+		}
+		return false;
+	};
+	return consume(0, blocks.length);
+}
+
 export class PromptCaptures {
 	private readonly captures = new Map<string, PromptCapture>();
 	/** Invoked with everything that would otherwise be lost when resolution throws,
@@ -173,6 +195,13 @@ export class PromptCaptures {
 		// it belongs below this block.
 		const embedded = this.findInheritedPrompts(systemPrompt, systemPrompt);
 		if (embedded.length === 0) {
+			// Below the inheritance route, per the comment above: a sub-agent's prompt can
+			// also contain every custom block of its parent's capture.
+			const reordered = this.findCustomReordered(systemPrompt);
+			if (reordered) {
+				this.touch(reordered.assembledPrompt, reordered);
+				return reordered;
+			}
 			const matches = this.closestKnown(systemPrompt);
 			this.onDiagnose({ systemPrompt, matches });
 			// The query is a recorded key minus its tail. That shape is the signature of
@@ -212,6 +241,39 @@ export class PromptCaptures {
 
 	get size(): number {
 		return this.captures.size;
+	}
+
+	/**
+	 * The capture whose prompt `systemPrompt` equals up to the relative order of its custom
+	 * section blocks, or undefined.
+	 *
+	 * pi-ai's replay re-adds a deleted section at the end of its Map, while pi's builder (and so
+	 * the capture key) renders customs in `systemPromptOptions.sections` order; the transcript
+	 * cannot say which order is right for a custom section, so the two can disagree about
+	 * nothing but that order. Every byte before the custom blocks must match, and the
+	 * remainder must be exactly the capture's own blocks, each once, in some order. Anything
+	 * else — changed content, a missing or extra section, other text — matches nothing here
+	 * and keeps throwing. The capture is returned under its own key, not re-keyed.
+	 */
+	private findCustomReordered(systemPrompt: string): PromptCapture | undefined {
+		let found: PromptCapture | undefined;
+		for (const capture of this.reachableCaptures()) {
+			// A permutation keeps the length, so this rejects nearly every capture cheaply.
+			if (capture.assembledPrompt.length !== systemPrompt.length) continue;
+			const blocks = Object.entries(capture.sections ?? {})
+				.filter(([, content]) => content)
+				.map(([name, content]) => `<${name}>\n${content}\n</${name}>`);
+			if (blocks.length < 2) continue;
+			const tail = blocks.join(CUSTOM_BLOCK_SEPARATOR);
+			if (!capture.assembledPrompt.endsWith(tail)) continue;
+			const head = capture.assembledPrompt.slice(0, capture.assembledPrompt.length - tail.length);
+			if (!systemPrompt.startsWith(head)) continue;
+			if (!isBlockPermutation(systemPrompt.slice(head.length), blocks)) continue;
+			// Several captures can differ from each other only in block order; the most
+			// recently used one is last in Map order.
+			found = capture;
+		}
+		return found;
 	}
 
 	/** Longest shared-prefix matches, best first, for the throw diagnostic. */
