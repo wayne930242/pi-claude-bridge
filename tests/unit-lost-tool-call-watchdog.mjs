@@ -38,7 +38,8 @@ function makeCtx() {
 	c.currentPiStream = fakeStream();
 	c.resetTurnState(fakeModel);
 	const killed = [];
-	c.activeQuery = { interrupt: async () => { killed.push("interrupt"); }, close: () => { killed.push("close"); } };
+	c.activeQuery = {};
+	c.stopProcess = () => { killed.push("stop"); };
 	c.promptStream = { fail: () => {} };
 	__test.activeQueryContexts.add(c);
 	return { c, killed, handlers: Object.fromEntries(__test.toMcpToolDefs(piTools, c).map((d) => [d.name, d.handler])) };
@@ -78,7 +79,7 @@ async function pieceOfAParallelCall(c) {
 beforeEach(() => {
 	__test.resetSharedSession();
 	__test.setPiUI(null);
-	__test.setSharedSession(null, { sessionId: "abc", cursor: 3, cwd: "/tmp", needsRebuild: false });
+	__test.setSharedSession("pi-test", { sessionId: "abc", cursor: 3, cwd: "/tmp", needsRebuild: false });
 });
 
 describe("a handler waiting on a tool call pi never received", () => {
@@ -104,7 +105,7 @@ describe("a handler waiting on a tool call pi never received", () => {
 		assert.strictEqual(c.currentPiStream, null);
 		// The orphaned handler is released, and the Claude Code process behind it killed.
 		assert.ok((await settled(monitor)).value, "the lost call's handler must settle");
-		assert.deepStrictEqual(killed, ["interrupt", "close"]);
+		assert.deepStrictEqual(killed, ["stop"]);
 		assert.strictEqual(c.activeQuery, null);
 		assert.ok(!__test.activeQueryContexts.has(c));
 		assert.strictEqual(c.discarded, true);
@@ -138,7 +139,7 @@ describe("a handler waiting on a tool call pi never received", () => {
 		const monitor = handlers.MonitorCreate("toolu_monitor");
 
 		assert.ok((await settled(monitor)).value);
-		assert.deepStrictEqual(killed, ["interrupt", "close"]);
+		assert.deepStrictEqual(killed, ["stop"]);
 		assert.strictEqual(c.activeQuery, null);
 		// pi's results will find no parked query and resume from its own history.
 		assert.strictEqual(c.discarded, true);

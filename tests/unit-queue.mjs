@@ -125,6 +125,21 @@ describe("tool result queue", () => {
 		assert.equal(c.pendingResults.size, 0);
 	});
 
+	// The provider resets turn state before delivering each tool-result callback, and a
+	// result whose handler has not arrived yet is routed by turnToolCallIds alone.
+	it("still routes a turn's results to its query after the per-callback turn reset", () => {
+		const c = new QueryContext();
+		c.piSessionId = "pi";
+		c.turnToolCallIds = ["toolu_1", "toolu_2"];
+		__test.activeQueryContexts.add(c);
+		try {
+			c.resetTurnState({ api: "anthropic-messages", provider: "anthropic", id: "test-model" });
+			assert.equal(__test.contextForToolResults([{ toolCallId: "toolu_2" }], "pi"), c);
+		} finally {
+			__test.activeQueryContexts.delete(c);
+		}
+	});
+
 	// The invariant the two maps exist to keep: an id is waiting in at most one.
 	it("moves an id between the maps without ever holding it in both", async () => {
 		const { c, callTool } = await startQuery(["toolu_1", "toolu_2"]);
@@ -213,7 +228,7 @@ describe("extracting a turn's tool results from pi's context", () => {
 	const texts = (results) => results.map((r) => r.content[0].text);
 
 	it("collects only the current turn, stopping at the previous assistant message", () => {
-		const { results, stopIdx } = extractAllToolResults([
+		const results = extractAllToolResults([
 			{ role: "user", content: "prompt" },
 			assistant("toolu_1"),
 			toolResult("toolu_1", "turn 1"),
@@ -223,14 +238,13 @@ describe("extracting a turn's tool results from pi's context", () => {
 		]);
 
 		assert.deepEqual(texts(results), ["turn 2a", "turn 2b"]);
-		assert.equal(stopIdx, 3);
 	});
 
 	// pi injects user messages (steer, followUp, orchestrator context) while the
 	// turn's tools are still running, anywhere among the results. The walk has to
 	// step over them; stopping at one strands every handler behind it.
 	it("walks past user messages injected among the results, keeping isError", () => {
-		const { results } = extractAllToolResults([
+		const results = extractAllToolResults([
 			{ role: "user", content: "prompt" },
 			assistant("toolu_1", "toolu_2", "toolu_3"),
 			{ role: "user", content: "steer before any result" },
@@ -252,8 +266,8 @@ describe("extracting a turn's tool results from pi's context", () => {
 			{ role: "user", content: "steer into the void" },
 		];
 
-		assert.equal(extractAllToolResults(noResultsYet).results.length, 0);
-		assert.equal(extractAllToolResults([]).results.length, 0);
+		assert.equal(extractAllToolResults(noResultsYet).length, 0);
+		assert.equal(extractAllToolResults([]).length, 0);
 	});
 });
 
@@ -266,7 +280,7 @@ describe("delivering an extracted turn to its handlers", () => {
 		const alpha = callTool("alpha", "toolu_1");
 		await tick();
 
-		const { results } = extractAllToolResults([
+		const results = extractAllToolResults([
 			{ role: "user", content: "prompt" },
 			{ role: "assistant", content: [{ type: "toolCall", id: "toolu_1" }, { type: "toolCall", id: "toolu_2" }] },
 			{ role: "toolResult", toolCallId: "toolu_1", content: "read the file" },
@@ -294,7 +308,7 @@ describe("tool set changed by a tool call", () => {
 		c.toolNameToPi = new Map(tools.map((t) => [`mcp__custom-tools__${t.name}`, t.name]));
 		return { c, callTool: await connectClient(c.toolServer) };
 	}
-	const contextWith = (...names) => ({ messages: [], tools: [...TOOLS, { name: "AskClaude", description: "", parameters: { type: "object", properties: {} } }].filter((t) => names.includes(t.name)) });
+	const contextWith = (...names) => ({ messages: [], tools: TOOLS.filter((t) => names.includes(t.name)) });
 
 	it("is a no-op while pi's tool set matches what the query serves", async () => {
 		const { c } = await startServedQuery(["alpha"]);
@@ -304,11 +318,11 @@ describe("tool set changed by a tool call", () => {
 	it("serves the new set, remaps names, and holds until Claude Code re-lists", async () => {
 		const { c, callTool } = await startServedQuery(["alpha"]);
 		let synced = false;
-		const sync = __test.syncServedTools(c, contextWith("beta", "gamma", "AskClaude")).then(() => { synced = true; });
+		const sync = __test.syncServedTools(c, contextWith("beta", "gamma")).then(() => { synced = true; });
 
 		assert.deepEqual([...c.toolNameToPi.keys()].sort(),
 			["mcp__custom-tools__beta", "mcp__custom-tools__gamma"],
-			"removed tools must drop out of the map and AskClaude must stay unserved");
+			"removed tools must drop out of the map");
 		await tick();
 		assert.equal(synced, false, "a result released before the re-list races CC's next request");
 

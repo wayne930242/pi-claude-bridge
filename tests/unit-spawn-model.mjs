@@ -1,7 +1,7 @@
 /**
  * What each Claude Code spawn site actually sends for a 200K twin and its base.
- * unit-models.mjs pins the runtime policy; this pins that the provider,
- * compact-summary and AskClaude paths all apply it: a twin must reach CC as the
+ * unit-models.mjs pins the runtime policy; this pins that the provider
+ * and compact-summary paths both apply it: a twin must reach CC as the
  * bare id with CLAUDE_CODE_DISABLE_1M_CONTEXT=1 (the bare id alone serves 1M on
  * Opus 5.5), and its base as the [1m] id without that variable.
  */
@@ -46,9 +46,8 @@ async function drain(stream) {
 }
 
 before(() => {
-	// Activation computes the registered model list (twins included) that
-	// AskClaude resolves against. registerTool is stubbed for the same reason as
-	// in unit-branch-summary.mjs: a local config may enable AskClaude.
+	// Activation computes the registered model list (twins included) and the
+	// long-context settings the spawn sites read.
 	activate({ on: () => {}, registerProvider: () => {}, registerTool: () => {} });
 	__test.setQuery(fakeQuery);
 });
@@ -90,16 +89,6 @@ describe("compact-summary spawn", () => {
 			}, { cacheRetention: "none" });
 			const end = await drain(stream);
 			assert.equal(end?.type, "done", `summary did not complete: ${JSON.stringify(end?.error?.errorMessage)}`);
-			assert.deepEqual(spawned(), expected);
-		});
-	}
-});
-
-describe("AskClaude spawn", () => {
-	for (const [label, id, , expected] of cases) {
-		it(`${label} (${id})`, async () => {
-			calls = [];
-			await __test.promptAndWait("hi", "none", new Map(), undefined, { model: id, isolated: true, appendSkills: false });
 			assert.deepEqual(spawned(), expected);
 		});
 	}
