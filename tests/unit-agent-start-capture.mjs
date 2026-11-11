@@ -8,8 +8,7 @@
  * prompt, while the prompt the provider actually queries with (and that pi-subagents
  * embeds verbatim into a child via ctx.getSystemPrompt() at dispatch) is the widened
  * one. If only the pre-widen prompt is a capture key, a subagent's turn resolves
- * against nothing, falls to a verbatim side request, and ships pi's harness — which
- * trips the server's third-party plan-eligibility check ("out of extra usage").
+ * against nothing and fails.
  *
  * These pin that agent_start records ctx.getSystemPrompt(), so the widened prompt
  * resolves directly and a child embedding it resolves by inheritance.
@@ -17,11 +16,12 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { PI_PREAMBLE, projectPromptCapture } from "../src/prompt-capture.js";
+import { projectPromptCapture } from "../src/prompt-capture.js";
 import { activateWithMockPi } from "./lib/mock-pi.mjs";
 
 const { __test } = await import("../src/index.js");
 
+const sessionManager = { getSessionId: () => "prompt-capture" };
 const PRE_WIDEN = "You are pi.\n# Tools\n- read: Read a file\n\npi packages (docs/packages.md)";
 // Same prefix, then the MCP tool descriptions that only appear post-connect.
 const WIDENED = "You are pi.\n# Tools\n- read: Read a file\n- Agent: Launch a subagent with a very long description ... \n\npi packages (docs/packages.md)";
@@ -39,7 +39,7 @@ describe("agent_start widened-prompt capture", () => {
 			"the widened prompt must not resolve off the pre-widen record alone",
 		);
 
-		handlers.get("agent_start")({}, { getSystemPrompt: () => WIDENED });
+		handlers.get("agent_start")({}, { sessionManager, getSystemPrompt: () => WIDENED });
 		const capture = __test.promptCaptures.resolveOrDerive(WIDENED);
 		assert.ok(capture, "after agent_start the widened prompt resolves exactly");
 		assert.deepEqual(capture.contextFiles, contextFiles, "carrying the before_agent_start context files");
@@ -48,7 +48,7 @@ describe("agent_start widened-prompt capture", () => {
 	it("lets a child embedding the widened parent resolve by inheritance", () => {
 		const handlers = activateWithMockPi();
 		handlers.get("before_agent_start")({ systemPrompt: PRE_WIDEN, systemPromptOptions: {} });
-		handlers.get("agent_start")({}, { getSystemPrompt: () => WIDENED });
+		handlers.get("agent_start")({}, { sessionManager, getSystemPrompt: () => WIDENED });
 
 		// pi-subagents embeds the widened parent prompt verbatim as the child's prefix.
 		const child = `${WIDENED}\n\n<sub_agent_context>be concise</sub_agent_context>\n\n<active_agent name="worker"/>`;
@@ -69,7 +69,7 @@ describe("turn_start prompt capture", () => {
 			systemPrompt: PRE_WIDEN,
 			systemPromptOptions: { contextFiles, skills: [], selectedTools: ["read"] },
 		});
-		handlers.get("agent_start")({}, { getSystemPrompt: () => WIDENED });
+		handlers.get("agent_start")({}, { sessionManager, getSystemPrompt: () => WIDENED });
 
 		// A later in-run turn renders a new prompt (mid-run tool-loadout change,
 		// section re-render). turn_start re-keys it.
@@ -93,7 +93,7 @@ describe("subagent captures", () => {
 
 		const isolatedPrompt = "You are an isolated smoke-test agent. Respond with ZZ_ISO_OK.";
 		child.get("before_agent_start")({ systemPrompt: isolatedPrompt, systemPromptOptions: {} });
-		child.get("agent_start")({}, { getSystemPrompt: () => isolatedPrompt });
+		child.get("agent_start")({}, { sessionManager, getSystemPrompt: () => isolatedPrompt });
 
 		assert.ok(freshTest.promptCaptures.resolve(isolatedPrompt), "the child instance recorded its own prompt");
 		assert.ok(
@@ -104,12 +104,13 @@ describe("subagent captures", () => {
 	});
 
 	// Tail-stripped inheritance (#88) is unsupported: a child embedding its parent prompt
-	// minus pi's per-session tail (skills catalogue, cwd footer) matches no full-prompt key.
+	// minus pi's per-session tail (skills catalogue, cwd footer) matches no full-prompt key,
+	// so the embedded parent, pi's harness included, goes out as the child's own prompt.
 	// gotgenes/pi-subagents strips the tail; elidickinson/pi-subagents embeds verbatim.
-	it("fails loudly when a recorded tail-stripped child has no inheritance edge (#88)", () => {
+	it("forwards a recorded tail-stripped child as-is, with no inheritance edge (#88)", () => {
 		const section = (name, content) => `<${name}>\n${content}\n</${name}>`;
 		const parentSections = [
-			`${PI_PREAMBLE}, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.`,
+			`You are a coding assistant running inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.`,
 			section("tools", "- read: Read a file\n- bash: Run commands\n\nIn addition to the tools above, you may have access to other custom tools depending on the project."),
 			section("rules", "- Use bash for file operations like ls, rg, find\n- Be concise in your responses"),
 			section("docs", "Pi documentation (read only when the user asks about pi itself):\n- Main documentation: /pi/README.md"),
@@ -122,7 +123,7 @@ describe("subagent captures", () => {
 
 		const handlers = activateWithMockPi();
 		handlers.get("before_agent_start")({ systemPrompt: parentPrompt, systemPromptOptions: {} });
-		handlers.get("agent_start")({}, { getSystemPrompt: () => parentPrompt });
+		handlers.get("agent_start")({}, { sessionManager, getSystemPrompt: () => parentPrompt });
 
 		// The child is recorded at both production capture boundaries, but its custom
 		// prompt contains only the tail-stripped parent shape, so no edge is matched.
@@ -130,15 +131,11 @@ describe("subagent captures", () => {
 			systemPrompt: strippedChild,
 			systemPromptOptions: { customPrompt: strippedChild },
 		});
-		handlers.get("agent_start")({}, { getSystemPrompt: () => strippedChild });
+		handlers.get("agent_start")({}, { sessionManager, getSystemPrompt: () => strippedChild });
 
 		const capture = __test.promptCaptures.resolve(strippedChild);
 		assert.ok(capture, "the tail-stripped child must be recorded before projection");
 		assert.equal(capture.inherited.length, 0, "the unsupported embedding must not invent an inheritance edge");
-		assert.throws(
-			() => projectPromptCapture(capture, { hasReadTool: false }),
-			/prompt-capture: refusing to send this prompt/,
-			"an unmatched recorded child must fail before its harness reaches Claude Code",
-		);
+		assert.equal(projectPromptCapture(capture, { hasReadTool: false }), strippedChild);
 	});
 });

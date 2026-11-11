@@ -17,13 +17,13 @@
 >
 > - **pi-claude-bridge (this extension)** runs Claude Code through the [Agent SDK](https://github.com/anthropics/claude-agent-sdk-typescript) and keeps pi's message history in sync with a Claude Code session file on disk. Claude Code builds and sends every request itself, unmodified, with its own system prompt and pi's prompt sections added to it. It tries to stay true to how Claude Code normally runs.
 >   - **Tradeoff:** complexity. Other extensions that change the system prompt mid-session, add messages to requests, or run subagents with their own prompts can fail.
-> - **pi-claude-code** runs `claude -p` for each turn and points it at a local proxy that rewrites each request on its way to Anthropic: it swaps in pi's history and system prompt as-is and adjusts cache markers. It keeps no state of its own, so it's simpler and gets along better with other extensions.
+> - **[pi-claude-code](https://github.com/earendil-works/pi-claude-code)** runs `claude -p` for each turn and points it at a local proxy that rewrites each request on its way to Anthropic: it swaps in pi's history and system prompt as-is and adjusts cache markers. It keeps no state of its own, so it's simpler and gets along better with other extensions.
 >   - **Tradeoff:** editing inference requests on the wire is less clearly within the TOS, and Claude Code updates may introduce breaking changes without warning.
 
 
 ## Install
 
-The bridge needs pi 1.2.0 or newer: before 1.2, the first extension-triggered idle turn in a reopened session failed with `prompt-capture: no capture`.
+The bridge needs pi 1.5.1 or newer.
 
 1. Install the extension:
    ```sh
@@ -39,6 +39,8 @@ To let other providers delegate tasks or questions to Claude Code, install the A
 ## Usage
 
 The model list comes from pi-ai's Anthropic catalog automatically. When pi-ai adds a new Claude model, it appears in `/model` after you update the package; no bridge update is needed. Dated snapshot ids (e.g. `claude-opus-4-5-20251101`) are not shown.
+
+Claude Mythos 5.2 and 5.1 are listed too (at the bottom), though pi-ai leaves them out. Anthropic serves Mythos only to approved programs, so on accounts without access requests fail with a 404 "There's an issue with the selected model".
 
 All current models run with 1M context. Opus 4.6 and Sonnet 4.6 need extra settings for 1M (see [Configuration](#configuration)).
 
@@ -154,18 +156,15 @@ pi sets `PI_CODING_AGENT=true` for child processes, including the Claude Code ch
 
 Hooks do not fire on isolated summary queries.
 
+You cannot rely on Claude Code's permission rules and PreToolUse hooks to block tools you don't want to run. Permissioning should take place on the Pi side when using the bridge.
+
 ### Compaction and branch summaries
 
 pi runs compaction and branch summaries natively. The bridge routes their `cacheRetention: "none"` calls to isolated Claude Code queries, leaving the live session untouched until pi completes the history rewrite. Other extensions can provide summaries through pi's hooks.
 
-### System prompt rejections
+### Extra Usage with plan limits left
 
-The bridge stops a turn instead of sending it if another extension changes the system prompt and the result still contains either:
-
-- pi's built-in system prompt text, or
-- the two documentation paths Anthropic looks for: `docs/custom-provider.md` together with `docs/packages.md`.
-
-Anthropic may otherwise bill these requests as Extra Usage. Fix the source extension before retrying. `CLAUDE_BRIDGE_DEBUG=1` writes the full prompt to the bridge log when this happens.
+Anthropic reads some system prompts as a third-party app's and bills those requests to Extra Usage even when your plan has room, or refuses them with "You're out of extra usage" when Extra Usage is off. pi's own prompt before pi 1.5 was one. The bridge warns when Claude Code reports a request billed to Extra Usage with no plan limit reached, and adds the same note to an "out of extra usage" error. Models you run at 1M through `longContextExtraUsage` are left out, since they bill Extra Usage by design. If you see it, look for an extension that adds text to the system prompt.
 
 ### Plan usage for footers and quota extensions
 
