@@ -2,6 +2,7 @@
 
 ## UNRELEASED
 
+- **Fix: pi's whole system prompt reaches Claude Code** — The bridge appends pi's prompt to Claude Code's preset as pi renders it (tools, rules, docs and context files included) instead of selected parts. The prompt-capture lookup that failed turns it couldn't match is removed. Set `provider.systemPromptPreset: false` to send pi's prompt alone, without Claude Code's preset.
 - **Fix: tool calls rejected by Claude Code no longer hang the turn (#218)** — We now fail the turn if a tool call is rejected (e.g. because Claude Code permission hook blocked). Running tools are not canceled or undone. Unknown and wrong-case tool names are intentionally ignored so CC can retry itself. If CC sends invalid arguments it can now require a new user prompt to continue. Thanks @sonSunnoi.
 - **Add: Claude Mythos 5.2 and 5.1 with 1M context (#259)** — pi-ai doesn't list these access-gated models, so the bridge now adds them, cloned from the Fable releases they shipped beside. Measured at 1M on Max. Listed last in `/model`; requests fail on accounts without Mythos access. Thanks @borski.
 - **Fix: every turn failed with `prompt-capture: no capture` after a custom system-prompt section was removed and re-added** — pi's replay appends a re-added section, so two custom sections swapped places versus the order the capture was recorded in, and compaction kept the swap, so the session never recovered. A prompt that differs from a recorded capture only in the order of its custom sections now resolves to that capture; any other difference still throws.

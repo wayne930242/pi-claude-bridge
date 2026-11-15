@@ -3,7 +3,7 @@
  * reviewer/judge call (own rubric, one user message, no tools) to the isolated
  * one-shot path instead of the main lane.
  * Pins: every condition is required; a conversation turn (tools present, or a
- * resolvable pi prompt) never qualifies.
+ * pi system message) never qualifies.
  */
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
@@ -12,7 +12,7 @@ import { isForeignOneShot } from "../src/one-shot.js";
 const user = (text) => ({ role: "user", content: [{ type: "text", text }], timestamp: 0 });
 const assistant = () => ({ role: "assistant", content: [{ type: "text", text: "ok" }], timestamp: 0 });
 const tool = { name: "bash", description: "run", parameters: { type: "object", properties: {} } };
-const unresolvable = () => { throw new Error("prompt-capture: no match"); };
+const unresolvable = () => { throw new Error("no pi system message"); };
 const resolvable = () => ({ key: "captured" });
 
 const reviewerCall = (over = {}) => ({ systemPrompt: "You are a permission reviewer. Answer allow or deny.", messages: [user("{\"evidence\":{}}")], ...over });
@@ -23,7 +23,7 @@ describe("isForeignOneShot", () => {
 		assert.equal(isForeignOneShot(reviewerCall({ tools: [] }), unresolvable), true);
 	});
 
-	it("keeps a conversation turn whose prompt resolves against pi's captures", () => {
+	it("keeps a conversation turn whose prompt came from pi system messages", () => {
 		assert.equal(isForeignOneShot(reviewerCall(), resolvable), false);
 	});
 

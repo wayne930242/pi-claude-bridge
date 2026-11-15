@@ -11,7 +11,7 @@ import type { Context } from "@earendil-works/pi-ai";
  * Every condition is required. A conversation turn always carries tools, so it
  * cannot land on the tool-less isolated path even if its prompt fails to
  * resolve; `resolve` is the same discriminator the main lane lives by (it
- * throws when the prompt was never captured and cannot be derived).
+ * throws when the prompt did not come from pi system messages).
  */
 export function isForeignOneShot(context: Context, resolve: (systemPrompt: string) => unknown): boolean {
 	if (!context.systemPrompt) return false;
